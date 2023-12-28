@@ -1,0 +1,15 @@
+[GLOBAL]
+pants_version = "2.19.0rc2"
+
+backend_packages = [
+  "pants.backend.python",
+]
+
+[source]
+root_patterns = [
+    "/"
+]
+
+[python]
+interpreter_constraints = ["CPython==3.12.*"]
+enable_resolves=true
