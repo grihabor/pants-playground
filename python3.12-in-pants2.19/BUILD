@@ -5,3 +5,7 @@ python_sources(
 )
 
 python_requirement(name="click", requirements=["click"])
+
+python_tests(
+    name="tests0",
+)
