@@ -1,0 +1,2 @@
+FROM one
+RUN pip install more-itertools

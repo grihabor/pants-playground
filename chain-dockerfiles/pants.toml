@@ -1,0 +1,8 @@
+[GLOBAL]
+pants_version="2.19.0rc2"
+backend_packages = [
+  'pants.backend.docker',
+]
+
+[python]
+interpreter_constraints = ["CPython==3.11.*"]
