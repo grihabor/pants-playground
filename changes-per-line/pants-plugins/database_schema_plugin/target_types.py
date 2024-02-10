@@ -1,12 +1,27 @@
 import ast
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from re import search
+from typing import Any, DefaultDict, List, Tuple
 
+from pants.backend.python.dependency_inference.module_mapper import (
+    FirstPartyPythonMappingImpl,
+    ResolveName,
+)
+from pants.backend.python.target_types import (
+    PythonResolveField,
+    PythonSourceField,
+    PythonTestsTimeoutField,
+)
+from pants.base.specs import RawSpecs
+from pants.engine.addresses import Address, Addresses
+from pants.engine.collection import Collection
 from pants.engine.fs import Digest, DigestContents
 from pants.engine.rules import Get, collect_rules, rule
 from pants.engine.target import (
     COMMON_TARGET_FIELDS,
+    AllTargets,
     Dependencies,
     FieldSet,
     GeneratedTargets,
@@ -20,8 +35,11 @@ from pants.engine.target import (
     StringField,
     Target,
     TargetGenerator,
+    Targets,
 )
 from pants.engine.unions import UnionRule
+from pants.util.frozendict import FrozenDict
+from pants.util.ordered_set import FrozenOrderedSet
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +128,7 @@ async def generate_table_targets(
     digest_files = await Get(DigestContents, Digest, hydrated_sources.snapshot.digest)
     digest_file = digest_files[0]
     content = digest_file.content.decode("utf-8")
-    parsed = ast.parse(source=content, filename=digest_file.path)
+    parsed = ast.parse(content, filename=digest_file.path)
     v = TableVisitor()
     v.visit(parsed)
     tables = v._tables
@@ -133,8 +151,9 @@ async def generate_table_targets(
 
 
 class InferTableDependenciesFieldSet(FieldSet):
-    required_fields = (TableSourceField,)
-    source: TableSourceField
+    required_fields = (PythonSourceField, PythonResolveField)
+    source: PythonSourceField
+    resolve: PythonResolveField
 
 
 class InferTableDependenciesRequest(
@@ -143,16 +162,112 @@ class InferTableDependenciesRequest(
     infer_from = InferTableDependenciesFieldSet
 
 
+class ImportVisitor(ast.NodeVisitor):
+    def __init__(self, search_for_modules: set[str]) -> None:
+        super().__init__()
+        self._search_for = search_for_modules
+        self._found = set()
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
+        for name in node.names:
+            obj = f"{node.module}.{name}"
+            if obj in self._search_for:
+                self._found.add(obj)
+
+    @classmethod
+    def search_for_modules(cls, node: ast.AST, modules: set[str]) -> set[str]:
+        v = cls(modules)
+        v.visit(node)
+        return v._found
+
+
+@dataclass(frozen=True)
+class AllTableTargets(Targets):
+    pass
+
+
 @rule
-def infer_table_dependencies(
+async def get_table_targets(targets: AllTargets) -> AllTableTargets:
+    return AllTableTargets(
+        target for target in targets if target.has_field(TableSourceField)
+    )
+
+
+class BackwardMapping(FrozenDict[ResolveName, FrozenDict[Address, Tuple[str, ...]]]):
+    pass
+
+
+@dataclass
+class BackwardMappingRequest:
+    addresses: Addresses
+
+
+@rule
+async def get_backward_mapping(
+    table_targets: AllTableTargets,
+    # mapping: FirstPartyPythonMappingImpl,
+) -> BackwardMapping:
+    search_for = set(target.address for target in table_targets)
+    result: DefaultDict[str, DefaultDict[Address, List[str]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    mapping = {}
+    for resolve, m in mapping.items():
+        for module, addresses in m.items():
+            for address in addresses:
+                if address in search_for:
+                    result[resolve][address.addr].append(module)
+
+    return BackwardMapping(
+        FrozenDict(
+            (
+                resolve,
+                FrozenDict(
+                    (address, tuple(sorted(modules))) for address, modules in m.items()
+                ),
+            )
+            for resolve, m in result.items()
+        )
+    )
+
+
+@rule
+async def infer_line_aware_python_dependencies(
     request: InferTableDependenciesRequest,
+    # table_targets: AllTableTargets,
+    # mapping: FirstPartyPythonMappingImpl,
+    # backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
-    return InferredDependencies(include=[request.field_set.source.address])
+    # sources = await Get(
+    #     HydratedSources, HydrateSourcesRequest, request.field_set.address
+    # )
+    # digest_files = await Get(DigestContents, Digest, sources.snapshot.digest)
+    # content = digest_files[0].content
+    # resolve = request.field_set.resolve.value
+    # assert resolve is not None
+
+    # search_for_modules = {
+    #     module
+    #     for table in table_targets
+    #     for module in backward_mapping[resolve][table.address]
+    # }
+
+    # parsed = ast.parse(content)
+    # logger.debug("parsed: %s", parsed)
+
+    # modules = ImportVisitor.search_for_modules(parsed, search_for_modules)
+
+    return InferredDependencies(
+        include=FrozenOrderedSet(
+            # address.addr for module in modules for address in mapping[resolve][module]
+        ),
+        exclude=FrozenOrderedSet(),
+    )
 
 
 def rules():
     return (
         *collect_rules(),
         UnionRule(GenerateTargetsRequest, GenerateTableTargetsRequest),
-        # UnionRule(InferDependenciesRequest, InferTableDependenciesRequest),
+        UnionRule(InferDependenciesRequest, InferTableDependenciesRequest),
     )
