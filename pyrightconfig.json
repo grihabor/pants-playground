@@ -1,0 +1,14 @@
+{
+  "exclude": [
+    "**/build",
+    "**/venv",
+    "**/dist"
+  ],
+  "venvPath": "./changes-per-line/dist/export/python/virtualenvs/python-default/",
+  "venv": "3.9.18",
+  "executionEnvironments": [
+    {
+      "root": "changes-per-line/pants-plugins/"
+    }
+  ]
+}

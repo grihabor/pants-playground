@@ -1,0 +1,17 @@
+[GLOBAL]
+pants_version = "2.19.0"
+backend_packages = [
+    "database_schema_plugin",
+    "pants.backend.python",
+    "pants.backend.plugin_development",
+]
+pythonpath = ["%(buildroot)s/pants-plugins"]
+
+[source]
+root_patterns = [
+  "pants-plugins",
+]
+
+[python]
+interpreter_constraints = ["==3.9.*"]
+enable_resolves = true
