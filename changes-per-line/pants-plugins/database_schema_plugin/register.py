@@ -1,9 +1,12 @@
-from database_schema_plugin.target_types import TableTarget
+from database_schema_plugin.target_types import TableTargetGenerator, TableTarget
+from database_schema_plugin.target_types import rules as target_types_rules
 
 
 def target_types():
-    return [TableTarget]
+    return [TableTarget, TableTargetGenerator]
 
 
 def rules():
-    pass
+    return [
+        *target_types_rules(),
+    ]
