@@ -7,10 +7,14 @@ from pants.engine.fs import Digest, DigestContents
 from pants.engine.rules import Get, collect_rules, rule
 from pants.engine.target import (
     COMMON_TARGET_FIELDS,
+    Dependencies,
+    FieldSet,
     GeneratedTargets,
     GenerateTargetsRequest,
     HydratedSources,
     HydrateSourcesRequest,
+    InferDependenciesRequest,
+    InferredDependencies,
     IntField,
     SingleSourceField,
     StringField,
@@ -24,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 class TableSourceField(SingleSourceField):
     required = True
+
+
+class TableDependencies(Dependencies):
+    pass
 
 
 class TableLinenoField(IntField):
@@ -45,6 +53,7 @@ class TableTarget(Target):
         TableNameField,
         TableLinenoField,
         TableEndLinenoField,
+        TableDependencies,
     )
 
 
@@ -54,12 +63,13 @@ class TableTargetGenerator(TargetGenerator):
     core_fields = (
         *COMMON_TARGET_FIELDS,
         TableSourceField,
+        TableDependencies,
     )
     copied_fields = (
         *COMMON_TARGET_FIELDS,
         TableSourceField,
     )
-    moved_fields = ()
+    moved_fields = (TableDependencies,)
 
 
 class GenerateTableTargetsRequest(GenerateTargetsRequest):
@@ -111,9 +121,9 @@ async def generate_table_targets(
             TableTarget(
                 {
                     **request.template,
-                    "table": table.table,
-                    "lineno": table.lineno,
-                    "end_lineno": table.end_lineno,
+                    TableNameField.alias: table.table,
+                    TableLinenoField.alias: table.lineno,
+                    TableEndLinenoField.alias: table.end_lineno,
                 },
                 request.template_address.create_generated(table.table),
             )
@@ -122,8 +132,27 @@ async def generate_table_targets(
     )
 
 
+class InferTableDependenciesFieldSet(FieldSet):
+    required_fields = (TableSourceField,)
+    source: TableSourceField
+
+
+class InferTableDependenciesRequest(
+    InferDependenciesRequest[InferTableDependenciesFieldSet]
+):
+    infer_from = InferTableDependenciesFieldSet
+
+
+@rule
+def infer_table_dependencies(
+    request: InferTableDependenciesRequest,
+) -> InferredDependencies:
+    return InferredDependencies(include=[request.field_set.source.address])
+
+
 def rules():
     return (
         *collect_rules(),
         UnionRule(GenerateTargetsRequest, GenerateTableTargetsRequest),
+        # UnionRule(InferDependenciesRequest, InferTableDependenciesRequest),
     )
