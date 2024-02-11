@@ -4,14 +4,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, DefaultDict, List, Tuple
 
-from pants.backend.python.dependency_inference.module_mapper import (
-    ResolveName,
-)
+from pants.backend.python.dependency_inference.module_mapper import ResolveName
 from pants.backend.python.subsystems.setup import PythonSetup
-from pants.backend.python.target_types import (
-    PythonResolveField,
-    PythonSourceField,
-)
+from pants.backend.python.target_types import PythonResolveField, PythonSourceField
 from pants.engine.addresses import Address, Addresses
 from pants.engine.fs import Digest, DigestContents
 from pants.engine.rules import Get, collect_rules, rule
@@ -179,7 +174,6 @@ class ImportVisitor(ast.NodeVisitor):
         return v._found
 
 
-@dataclass(frozen=True)
 class AllTableTargets(Targets):
     pass
 
@@ -233,9 +227,9 @@ async def get_backward_mapping(
 async def infer_line_aware_python_dependencies(
     request: InferTableDependenciesRequest,
     python_setup: PythonSetup,
-    # table_targets: AllTableTargets,
+    table_targets: AllTableTargets,
     # mapping: FirstPartyPythonMappingImpl,
-    # backward_mapping: BackwardMapping,
+    backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
     sources = await Get(
         HydratedSources, HydrateSourcesRequest(request.field_set.source)
@@ -245,10 +239,13 @@ async def infer_line_aware_python_dependencies(
     resolve = request.field_set.resolve.normalized_value(python_setup)
     assert resolve is not None, "resolve is None"
 
+    if not backward_mapping:
+        raise ValueError("empty backward mapping")
+
     search_for_modules = {
-        # module
-        # for table in table_targets
-        # for module in backward_mapping[resolve][table.address]
+        module
+        for table in table_targets
+        for module in backward_mapping[resolve][table.address]
     }
 
     parsed = ast.parse(content)
