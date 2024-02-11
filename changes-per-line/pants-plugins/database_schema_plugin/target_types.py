@@ -143,7 +143,9 @@ async def generate_python_contant_targets(
                     PythonConstantLinenoField.alias: python_contant.lineno,
                     PythonConstantEndLinenoField.alias: python_contant.end_lineno,
                 },
-                request.template_address.create_generated(python_contant.python_contant),
+                request.template_address.create_generated(
+                    python_contant.python_contant
+                ),
             )
             for python_contant in python_contants
         ],
@@ -151,17 +153,17 @@ async def generate_python_contant_targets(
 
 
 @dataclass(frozen=True)
-class InferTableDependenciesFieldSet(FieldSet):
+class InferPythonDependenciesOnPythonConstantsFieldSet(FieldSet):
     required_fields = (PythonSourceField, PythonResolveField)
 
     source: PythonSourceField
     resolve: PythonResolveField
 
 
-class InferTableDependenciesRequest(
-    InferDependenciesRequest[InferTableDependenciesFieldSet]
+class InferPythonDependenciesOnPythonConstantsRequest(
+    InferDependenciesRequest[InferPythonDependenciesOnPythonConstantsFieldSet]
 ):
-    infer_from = InferTableDependenciesFieldSet
+    infer_from = InferPythonDependenciesOnPythonConstantsFieldSet
 
 
 @dataclass(frozen=True)
@@ -191,13 +193,13 @@ class ImportVisitor(ast.NodeVisitor):
         return v._found
 
 
-class AllTableTargets(Targets):
+class AllPythonConstantTargets(Targets):
     pass
 
 
 @rule
-async def get_python_contant_targets(targets: AllTargets) -> AllTableTargets:
-    return AllTableTargets(
+async def get_python_contant_targets(targets: AllTargets) -> AllPythonConstantTargets:
+    return AllPythonConstantTargets(
         target for target in targets if target.has_field(PythonConstantSourceField)
     )
 
@@ -213,7 +215,7 @@ class BackwardMappingRequest:
 
 @rule
 async def get_backward_mapping(
-    python_contant_targets: AllTableTargets,
+    python_contant_targets: AllPythonConstantTargets,
     mapping: FirstPartyPythonModuleMapping,
 ) -> BackwardMapping:
     paths = await MultiGet(
@@ -247,14 +249,14 @@ async def get_backward_mapping(
 
 
 @rule
-async def infer_line_aware_python_dependencies(
-    request: InferTableDependenciesRequest,
+async def infer_python_dependencies_on_python_constants(
+    request: InferPythonDependenciesOnPythonConstantsRequest,
     python_setup: PythonSetup,
-    python_contant_targets: AllTableTargets,
+    python_contant_targets: AllPythonConstantTargets,
     mapping: FirstPartyPythonModuleMapping,
     backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
-    """Infers dependencies on TableTarget-s based on python source imports."""
+    """Infers dependencies on PythonConstantTarget-s based on python source imports."""
 
     sources = await Get(
         HydratedSources, HydrateSourcesRequest(request.field_set.source)
@@ -283,7 +285,9 @@ async def infer_line_aware_python_dependencies(
     vars = ImportVisitor.search_for_vars(content, interesting_modules)
     logger.debug("vars %s", vars)
 
-    filenames_to_python_contant_targets: DefaultDict[str, List[Target]] = defaultdict(list)
+    filenames_to_python_contant_targets: DefaultDict[str, List[Target]] = defaultdict(
+        list
+    )
     for path, target in zip(paths, python_contant_targets):
         for filename in path.files:
             filenames_to_python_contant_targets[filename].append(target)
@@ -309,5 +313,7 @@ def rules():
     return (
         *collect_rules(),
         UnionRule(GenerateTargetsRequest, GeneratePythonConstantTargetsRequest),
-        UnionRule(InferDependenciesRequest, InferTableDependenciesRequest),
+        UnionRule(
+            InferDependenciesRequest, InferPythonDependenciesOnPythonConstantsRequest
+        ),
     )
