@@ -92,7 +92,7 @@ class GeneratePythonConstantTargetsRequest(GenerateTargetsRequest):
 
 @dataclass
 class PythonConstant:
-    table: str
+    python_contant: str
     lineno: int
     end_lineno: int
 
@@ -121,31 +121,31 @@ class PythonConstantVisitor(ast.NodeVisitor):
 
 
 @rule
-async def generate_table_targets(
+async def generate_python_contant_targets(
     request: GeneratePythonConstantTargetsRequest,
 ) -> GeneratedTargets:
     hydrated_sources = await Get(
         HydratedSources,
         HydrateSourcesRequest(request.generator[PythonConstantSourceField]),
     )
-    logger.debug("table sources: %s", hydrated_sources)
+    logger.debug("python_contant sources: %s", hydrated_sources)
     digest_files = await Get(DigestContents, Digest, hydrated_sources.snapshot.digest)
     content = digest_files[0].content
-    tables = PythonConstantVisitor.parse_constants(content)
-    logger.debug("parsed tables: %s", tables)
+    python_contants = PythonConstantVisitor.parse_constants(content)
+    logger.debug("parsed python_contants: %s", python_contants)
     return GeneratedTargets(
         request.generator,
         [
             PythonConstantTarget(
                 {
                     **request.template,
-                    PythonConstantNameField.alias: table.table,
-                    PythonConstantLinenoField.alias: table.lineno,
-                    PythonConstantEndLinenoField.alias: table.end_lineno,
+                    PythonConstantNameField.alias: python_contant.python_contant,
+                    PythonConstantLinenoField.alias: python_contant.lineno,
+                    PythonConstantEndLinenoField.alias: python_contant.end_lineno,
                 },
-                request.template_address.create_generated(table.table),
+                request.template_address.create_generated(python_contant.python_contant),
             )
-            for table in tables
+            for python_contant in python_contants
         ],
     )
 
@@ -196,7 +196,7 @@ class AllTableTargets(Targets):
 
 
 @rule
-async def get_table_targets(targets: AllTargets) -> AllTableTargets:
+async def get_python_contant_targets(targets: AllTargets) -> AllTableTargets:
     return AllTableTargets(
         target for target in targets if target.has_field(PythonConstantSourceField)
     )
@@ -213,12 +213,12 @@ class BackwardMappingRequest:
 
 @rule
 async def get_backward_mapping(
-    table_targets: AllTableTargets,
+    python_contant_targets: AllTableTargets,
     mapping: FirstPartyPythonModuleMapping,
 ) -> BackwardMapping:
     paths = await MultiGet(
         Get(SourcesPaths, SourcesPathsRequest(tgt.get(PythonConstantSourceField)))
-        for tgt in table_targets
+        for tgt in python_contant_targets
     )
     search_for = {file for path in paths for file in path.files}
 
@@ -250,7 +250,7 @@ async def get_backward_mapping(
 async def infer_line_aware_python_dependencies(
     request: InferTableDependenciesRequest,
     python_setup: PythonSetup,
-    table_targets: AllTableTargets,
+    python_contant_targets: AllTableTargets,
     mapping: FirstPartyPythonModuleMapping,
     backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
@@ -269,7 +269,7 @@ async def infer_line_aware_python_dependencies(
 
     paths = await MultiGet(
         Get(SourcesPaths, SourcesPathsRequest(tgt.get(PythonConstantSourceField)))
-        for tgt in table_targets
+        for tgt in python_contant_targets
     )
     logger.debug("backward mapping %s", backward_mapping)
     interesting_modules = {
@@ -283,15 +283,15 @@ async def infer_line_aware_python_dependencies(
     vars = ImportVisitor.search_for_vars(content, interesting_modules)
     logger.debug("vars %s", vars)
 
-    filenames_to_table_targets: DefaultDict[str, List[Target]] = defaultdict(list)
-    for path, target in zip(paths, table_targets):
+    filenames_to_python_contant_targets: DefaultDict[str, List[Target]] = defaultdict(list)
+    for path, target in zip(paths, python_contant_targets):
         for filename in path.files:
-            filenames_to_table_targets[filename].append(target)
+            filenames_to_python_contant_targets[filename].append(target)
 
     include = set()
     for var in vars:
         for provider in mapping.resolves_to_modules_to_providers[resolve][var.module]:
-            targets = filenames_to_table_targets[provider.addr.filename]
+            targets = filenames_to_python_contant_targets[provider.addr.filename]
             for target in targets:
                 name = target.get(PythonConstantNameField).value
                 logger.debug("check for var %s %s", name, var.name)
