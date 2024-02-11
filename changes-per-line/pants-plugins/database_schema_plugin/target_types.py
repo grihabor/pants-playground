@@ -2,21 +2,17 @@ import ast
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from re import search
 from typing import Any, DefaultDict, List, Tuple
 
 from pants.backend.python.dependency_inference.module_mapper import (
-    FirstPartyPythonMappingImpl,
     ResolveName,
 )
+from pants.backend.python.subsystems.setup import PythonSetup
 from pants.backend.python.target_types import (
     PythonResolveField,
     PythonSourceField,
-    PythonTestsTimeoutField,
 )
-from pants.base.specs import RawSpecs
 from pants.engine.addresses import Address, Addresses
-from pants.engine.collection import Collection
 from pants.engine.fs import Digest, DigestContents
 from pants.engine.rules import Get, collect_rules, rule
 from pants.engine.target import (
@@ -150,8 +146,10 @@ async def generate_table_targets(
     )
 
 
+@dataclass(frozen=True)
 class InferTableDependenciesFieldSet(FieldSet):
     required_fields = (PythonSourceField, PythonResolveField)
+
     source: PythonSourceField
     resolve: PythonResolveField
 
@@ -234,28 +232,29 @@ async def get_backward_mapping(
 @rule
 async def infer_line_aware_python_dependencies(
     request: InferTableDependenciesRequest,
+    python_setup: PythonSetup,
     # table_targets: AllTableTargets,
     # mapping: FirstPartyPythonMappingImpl,
     # backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
-    # sources = await Get(
-    #     HydratedSources, HydrateSourcesRequest, request.field_set.address
-    # )
-    # digest_files = await Get(DigestContents, Digest, sources.snapshot.digest)
-    # content = digest_files[0].content
-    # resolve = request.field_set.resolve.value
-    # assert resolve is not None
+    sources = await Get(
+        HydratedSources, HydrateSourcesRequest(request.field_set.source)
+    )
+    digest_files = await Get(DigestContents, Digest, sources.snapshot.digest)
+    content = digest_files[0].content
+    resolve = request.field_set.resolve.normalized_value(python_setup)
+    assert resolve is not None, "resolve is None"
 
-    # search_for_modules = {
-    #     module
-    #     for table in table_targets
-    #     for module in backward_mapping[resolve][table.address]
-    # }
+    search_for_modules = {
+        # module
+        # for table in table_targets
+        # for module in backward_mapping[resolve][table.address]
+    }
 
-    # parsed = ast.parse(content)
-    # logger.debug("parsed: %s", parsed)
+    parsed = ast.parse(content)
+    logger.debug("parsed: %s", parsed)
 
-    # modules = ImportVisitor.search_for_modules(parsed, search_for_modules)
+    ImportVisitor.search_for_modules(parsed, search_for_modules)
 
     return InferredDependencies(
         include=FrozenOrderedSet(
