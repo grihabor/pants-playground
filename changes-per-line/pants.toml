@@ -12,7 +12,7 @@ pythonpath = ["%(buildroot)s/pants-plugins"]
 [source]
 root_patterns = [
     "pants-plugins",
-    "/",
+    "src",
 ]
 
 [python]

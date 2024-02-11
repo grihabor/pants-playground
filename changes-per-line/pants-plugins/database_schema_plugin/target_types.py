@@ -2,14 +2,17 @@ import ast
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, DefaultDict, List, Tuple
+from typing import Any, DefaultDict, List, Set, Tuple
 
-from pants.backend.python.dependency_inference.module_mapper import ResolveName
+from pants.backend.python.dependency_inference.module_mapper import (
+    FirstPartyPythonModuleMapping,
+    ResolveName,
+)
 from pants.backend.python.subsystems.setup import PythonSetup
 from pants.backend.python.target_types import PythonResolveField, PythonSourceField
-from pants.engine.addresses import Address, Addresses
+from pants.engine.addresses import Addresses
 from pants.engine.fs import Digest, DigestContents
-from pants.engine.rules import Get, collect_rules, rule
+from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import (
     COMMON_TARGET_FIELDS,
     AllTargets,
@@ -23,6 +26,8 @@ from pants.engine.target import (
     InferredDependencies,
     IntField,
     SingleSourceField,
+    SourcesPaths,
+    SourcesPathsRequest,
     StringField,
     Target,
     TargetGenerator,
@@ -52,7 +57,7 @@ class TableEndLinenoField(IntField):
 
 
 class TableNameField(StringField):
-    alias = "table"
+    alias = "table"  # rename to python_constant
 
 
 class TableTarget(Target):
@@ -155,22 +160,30 @@ class InferTableDependenciesRequest(
     infer_from = InferTableDependenciesFieldSet
 
 
+@dataclass(frozen=True)
+class Var:
+    module: str
+    name: str
+
+
 class ImportVisitor(ast.NodeVisitor):
     def __init__(self, search_for_modules: set[str]) -> None:
         super().__init__()
         self._search_for = search_for_modules
-        self._found = set()
+        self._found: Set[Var] = set()
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
-        for name in node.names:
-            obj = f"{node.module}.{name}"
-            if obj in self._search_for:
-                self._found.add(obj)
+        if node.module not in self._search_for:
+            return
+
+        for alias in node.names:
+            self._found.add(Var(node.module, alias.name))
 
     @classmethod
-    def search_for_modules(cls, node: ast.AST, modules: set[str]) -> set[str]:
+    def search_for_vars(cls, content: bytes, modules: set[str]) -> set[Var]:
+        parsed = ast.parse(content.decode("utf-8"))
         v = cls(modules)
-        v.visit(node)
+        v.visit(parsed)
         return v._found
 
 
@@ -185,7 +198,7 @@ async def get_table_targets(targets: AllTargets) -> AllTableTargets:
     )
 
 
-class BackwardMapping(FrozenDict[ResolveName, FrozenDict[Address, Tuple[str, ...]]]):
+class BackwardMapping(FrozenDict[ResolveName, FrozenDict[str, Tuple[str, ...]]]):
     pass
 
 
@@ -197,25 +210,31 @@ class BackwardMappingRequest:
 @rule
 async def get_backward_mapping(
     table_targets: AllTableTargets,
-    # mapping: FirstPartyPythonMappingImpl,
+    mapping: FirstPartyPythonModuleMapping,
 ) -> BackwardMapping:
-    search_for = set(target.address for target in table_targets)
-    result: DefaultDict[str, DefaultDict[Address, List[str]]] = defaultdict(
+    paths = await MultiGet(
+        Get(SourcesPaths, SourcesPathsRequest(tgt.get(TableSourceField)))
+        for tgt in table_targets
+    )
+    search_for = {file for path in paths for file in path.files}
+
+    result: DefaultDict[str, DefaultDict[str, List[str]]] = defaultdict(
         lambda: defaultdict(list)
     )
-    mapping = {}
-    for resolve, m in mapping.items():
-        for module, addresses in m.items():
-            for address in addresses:
-                if address in search_for:
-                    result[resolve][address.addr].append(module)
+    for resolve, m in mapping.resolves_to_modules_to_providers.items():
+        for module, module_providers in m.items():
+            for module_provider in module_providers:
+                filename = module_provider.addr.filename
+                if filename in search_for:
+                    result[resolve][filename].append(module)
 
     return BackwardMapping(
         FrozenDict(
             (
                 resolve,
                 FrozenDict(
-                    (address, tuple(sorted(modules))) for address, modules in m.items()
+                    (filename, tuple(sorted(modules)))
+                    for filename, modules in m.items()
                 ),
             )
             for resolve, m in result.items()
@@ -228,9 +247,11 @@ async def infer_line_aware_python_dependencies(
     request: InferTableDependenciesRequest,
     python_setup: PythonSetup,
     table_targets: AllTableTargets,
-    # mapping: FirstPartyPythonMappingImpl,
+    mapping: FirstPartyPythonModuleMapping,
     backward_mapping: BackwardMapping,
 ) -> InferredDependencies:
+    """Infers dependencies on TableTarget-s based on python source imports."""
+
     sources = await Get(
         HydratedSources, HydrateSourcesRequest(request.field_set.source)
     )
@@ -242,21 +263,40 @@ async def infer_line_aware_python_dependencies(
     if not backward_mapping:
         raise ValueError("empty backward mapping")
 
-    search_for_modules = {
+    paths = await MultiGet(
+        Get(SourcesPaths, SourcesPathsRequest(tgt.get(TableSourceField)))
+        for tgt in table_targets
+    )
+    logger.debug("backward mapping %s", backward_mapping)
+    interesting_modules = {
         module
-        for table in table_targets
-        for module in backward_mapping[resolve][table.address]
+        for path in paths
+        for filename in path.files
+        for module in backward_mapping[resolve][filename]
     }
 
-    parsed = ast.parse(content)
-    logger.debug("parsed: %s", parsed)
+    logger.debug("interesting_modules %s", interesting_modules)
+    vars = ImportVisitor.search_for_vars(content, interesting_modules)
+    logger.debug("vars %s", vars)
 
-    ImportVisitor.search_for_modules(parsed, search_for_modules)
+    filenames_to_table_targets: DefaultDict[str, List[Target]] = defaultdict(list)
+    for path, target in zip(paths, table_targets):
+        for filename in path.files:
+            filenames_to_table_targets[filename].append(target)
 
+    include = set()
+    for var in vars:
+        for provider in mapping.resolves_to_modules_to_providers[resolve][var.module]:
+            targets = filenames_to_table_targets[provider.addr.filename]
+            for target in targets:
+                name = target.get(TableNameField).value
+                logger.debug("check for var %s %s", name, var.name)
+                if name == var.name:
+                    include.add(target.address)
+
+    logger.debug("include %s", include)
     return InferredDependencies(
-        include=FrozenOrderedSet(
-            # address.addr for module in modules for address in mapping[resolve][module]
-        ),
+        include=FrozenOrderedSet(include),
         exclude=FrozenOrderedSet(),
     )
 
