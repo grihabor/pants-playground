@@ -40,104 +40,108 @@ from pants.util.ordered_set import FrozenOrderedSet
 logger = logging.getLogger(__name__)
 
 
-class TableSourceField(SingleSourceField):
+class PythonConstantSourceField(SingleSourceField):
     required = True
 
 
-class TableDependencies(Dependencies):
+class PythonConstantDependencies(Dependencies):
     pass
 
 
-class TableLinenoField(IntField):
+class PythonConstantLinenoField(IntField):
     alias = "lineno"
 
 
-class TableEndLinenoField(IntField):
+class PythonConstantEndLinenoField(IntField):
     alias = "end_lineno"
 
 
-class TableNameField(StringField):
-    alias = "table"  # rename to python_constant
+class PythonConstantNameField(StringField):
+    alias = "constant"
 
 
-class TableTarget(Target):
-    alias = "table"
+class PythonConstantTarget(Target):
+    alias = "python_constant"
     core_fields = (
-        TableSourceField,
-        TableNameField,
-        TableLinenoField,
-        TableEndLinenoField,
-        TableDependencies,
+        PythonConstantSourceField,
+        PythonConstantNameField,
+        PythonConstantLinenoField,
+        PythonConstantEndLinenoField,
+        PythonConstantDependencies,
     )
 
 
-class TableTargetGenerator(TargetGenerator):
-    alias = "tables"
-    generated_target_cls = TableTarget
+class PythonConstantTargetGenerator(TargetGenerator):
+    alias = "python_constants"
+    generated_target_cls = PythonConstantTarget
     core_fields = (
         *COMMON_TARGET_FIELDS,
-        TableSourceField,
-        TableDependencies,
+        PythonConstantSourceField,
+        PythonConstantDependencies,
     )
     copied_fields = (
         *COMMON_TARGET_FIELDS,
-        TableSourceField,
+        PythonConstantSourceField,
     )
-    moved_fields = (TableDependencies,)
+    moved_fields = (PythonConstantDependencies,)
 
 
-class GenerateTableTargetsRequest(GenerateTargetsRequest):
-    generate_from = TableTargetGenerator
+class GeneratePythonConstantTargetsRequest(GenerateTargetsRequest):
+    generate_from = PythonConstantTargetGenerator
 
 
 @dataclass
-class Table:
+class PythonConstant:
     table: str
     lineno: int
     end_lineno: int
 
 
-class TableVisitor(ast.NodeVisitor):
+class PythonConstantVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self._tables = []
+        self._constants: list[PythonConstant] = []
 
-    def visit_Dict(self, node: ast.Dict) -> Any:
-        for key, val in zip(node.keys, node.values):
-            if (
-                isinstance(key, ast.Str)
-                and key.value == "table"
-                and isinstance(val, ast.Str)
-            ):
-                assert node.end_lineno is not None
-                self._tables.append(Table(val.value, node.lineno, node.end_lineno))
+    def visit_Module(self, node: ast.Module) -> Any:
+        for stmt in node.body:
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        assert stmt.end_lineno
+                        self._constants.append(
+                            PythonConstant(target.id, stmt.lineno, stmt.end_lineno)
+                        )
+
+    @classmethod
+    def parse_constants(cls, content: bytes) -> list[PythonConstant]:
+        parsed = ast.parse(content.decode("utf-8"))
+        v = PythonConstantVisitor()
+        v.visit(parsed)
+        return v._constants
 
 
 @rule
 async def generate_table_targets(
-    request: GenerateTableTargetsRequest,
+    request: GeneratePythonConstantTargetsRequest,
 ) -> GeneratedTargets:
     hydrated_sources = await Get(
-        HydratedSources, HydrateSourcesRequest(request.generator[TableSourceField])
+        HydratedSources,
+        HydrateSourcesRequest(request.generator[PythonConstantSourceField]),
     )
     logger.debug("table sources: %s", hydrated_sources)
     digest_files = await Get(DigestContents, Digest, hydrated_sources.snapshot.digest)
-    digest_file = digest_files[0]
-    content = digest_file.content.decode("utf-8")
-    parsed = ast.parse(content, filename=digest_file.path)
-    v = TableVisitor()
-    v.visit(parsed)
-    tables = v._tables
+    content = digest_files[0].content
+    tables = PythonConstantVisitor.parse_constants(content)
     logger.debug("parsed tables: %s", tables)
     return GeneratedTargets(
         request.generator,
         [
-            TableTarget(
+            PythonConstantTarget(
                 {
                     **request.template,
-                    TableNameField.alias: table.table,
-                    TableLinenoField.alias: table.lineno,
-                    TableEndLinenoField.alias: table.end_lineno,
+                    PythonConstantNameField.alias: table.table,
+                    PythonConstantLinenoField.alias: table.lineno,
+                    PythonConstantEndLinenoField.alias: table.end_lineno,
                 },
                 request.template_address.create_generated(table.table),
             )
@@ -194,7 +198,7 @@ class AllTableTargets(Targets):
 @rule
 async def get_table_targets(targets: AllTargets) -> AllTableTargets:
     return AllTableTargets(
-        target for target in targets if target.has_field(TableSourceField)
+        target for target in targets if target.has_field(PythonConstantSourceField)
     )
 
 
@@ -213,7 +217,7 @@ async def get_backward_mapping(
     mapping: FirstPartyPythonModuleMapping,
 ) -> BackwardMapping:
     paths = await MultiGet(
-        Get(SourcesPaths, SourcesPathsRequest(tgt.get(TableSourceField)))
+        Get(SourcesPaths, SourcesPathsRequest(tgt.get(PythonConstantSourceField)))
         for tgt in table_targets
     )
     search_for = {file for path in paths for file in path.files}
@@ -264,7 +268,7 @@ async def infer_line_aware_python_dependencies(
         raise ValueError("empty backward mapping")
 
     paths = await MultiGet(
-        Get(SourcesPaths, SourcesPathsRequest(tgt.get(TableSourceField)))
+        Get(SourcesPaths, SourcesPathsRequest(tgt.get(PythonConstantSourceField)))
         for tgt in table_targets
     )
     logger.debug("backward mapping %s", backward_mapping)
@@ -289,7 +293,7 @@ async def infer_line_aware_python_dependencies(
         for provider in mapping.resolves_to_modules_to_providers[resolve][var.module]:
             targets = filenames_to_table_targets[provider.addr.filename]
             for target in targets:
-                name = target.get(TableNameField).value
+                name = target.get(PythonConstantNameField).value
                 logger.debug("check for var %s %s", name, var.name)
                 if name == var.name:
                     include.add(target.address)
@@ -304,6 +308,6 @@ async def infer_line_aware_python_dependencies(
 def rules():
     return (
         *collect_rules(),
-        UnionRule(GenerateTargetsRequest, GenerateTableTargetsRequest),
+        UnionRule(GenerateTargetsRequest, GeneratePythonConstantTargetsRequest),
         UnionRule(InferDependenciesRequest, InferTableDependenciesRequest),
     )

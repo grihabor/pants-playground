@@ -1,4 +1,4 @@
-tables(name="tables", source="tables.py", dependencies=["src/tables.py:src"])
+python_constants(name="tables", source="tables.py", dependencies=["src/tables.py:src"])
 python_sources(
     name="src",
     overrides={

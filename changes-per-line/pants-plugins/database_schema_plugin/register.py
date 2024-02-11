@@ -1,4 +1,4 @@
-from database_schema_plugin.target_types import TableTarget, TableTargetGenerator
+from database_schema_plugin.target_types import PythonConstantTarget, PythonConstantTargetGenerator
 from database_schema_plugin.target_types import rules as target_types_rules
 from pants.backend.python.dependency_inference.module_mapper import (
     rules as module_mapper_rules,
@@ -6,7 +6,7 @@ from pants.backend.python.dependency_inference.module_mapper import (
 
 
 def target_types():
-    return [TableTarget, TableTargetGenerator]
+    return [PythonConstantTarget, PythonConstantTargetGenerator]
 
 
 def rules():
