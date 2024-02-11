@@ -1,6 +1,7 @@
 from textwrap import dedent
 
 import pytest
+from database_schema_plugin import target_types
 from database_schema_plugin.target_types import (
     InferPythonDependenciesOnPythonConstantsFieldSet,
     InferPythonDependenciesOnPythonConstantsRequest,
@@ -9,16 +10,17 @@ from database_schema_plugin.target_types import (
     PythonConstantTargetGenerator,
     PythonConstantVisitor,
 )
-from database_schema_plugin.target_types import rules as target_types_rules
+from pants.backend.python import register as python_register
+from pants.backend.python import target_types_rules
 from pants.backend.python.dependency_inference import module_mapper
 from pants.backend.python.target_types import (
     PythonSourcesGeneratorTarget,
     PythonSourceTarget,
 )
 from pants.core.util_rules import stripped_source_files
-from pants.engine.addresses import Address
+from pants.engine.addresses import Address, Addresses
 from pants.engine.rules import QueryRule
-from pants.engine.target import InferredDependencies
+from pants.engine.target import Dependencies, DependenciesRequest, InferredDependencies
 from pants.testutil.rule_runner import RuleRunner
 
 
@@ -26,17 +28,17 @@ from pants.testutil.rule_runner import RuleRunner
 def rule_runner():
     return RuleRunner(
         rules=[
-            *target_types_rules(),
+            *target_types.rules(),
             *module_mapper.rules(),
             *stripped_source_files.rules(),
-            QueryRule(
-                InferredDependencies,
-                (InferPythonDependenciesOnPythonConstantsRequest,),
-            ),
+            *target_types_rules.rules(),
+            # python_register.rules(),
+            QueryRule(Addresses, (DependenciesRequest,)),
         ],
         target_types=[
             PythonSourceTarget,
             PythonSourcesGeneratorTarget,
+            # *python_register.target_types(),
             PythonConstantTarget,
             PythonConstantTargetGenerator,
         ],
@@ -81,21 +83,23 @@ def test_infer_dependencies(rule_runner: RuleRunner):
             ),
             "src/BUILD": dedent(
                 """\
-                python_constants(name="const")
+                python_constants(name="const", source="constants.py")
                 python_sources(name="src")
                 """
             ),
         }
     )
     tgt = rule_runner.get_target(
-        Address("src", target_name="src", generated_name="src/run.py")
+        Address("src", target_name="src", relative_file_path="run.py")
     )
     addresses = rule_runner.request(
-        InferredDependencies,
-        [
-            InferPythonDependenciesOnPythonConstantsRequest(
-                InferPythonDependenciesOnPythonConstantsFieldSet.create(tgt)
-            ),
-        ],
+        Addresses, [DependenciesRequest(tgt.get(Dependencies))]
     )
-    assert [] == addresses
+    assert addresses == Addresses(
+        [
+            Address("src", target_name="const", generated_name="array_constant"),
+            #
+            # You will probably want to disable this dependency and repy only on python_constant.
+            Address("src", relative_file_path="constants.py"),
+        ]
+    )
