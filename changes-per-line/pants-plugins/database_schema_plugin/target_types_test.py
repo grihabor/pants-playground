@@ -99,7 +99,8 @@ def test_infer_dependencies(rule_runner: RuleRunner):
         [
             Address("src", target_name="const", generated_name="array_constant"),
             #
-            # You will probably want to disable this dependency and repy only on python_constant.
+            # You will probably want to disable this dependency in the real plugin
+            # and rely only on python_constant.
             Address("src", relative_file_path="constants.py"),
         ]
     )
