@@ -1,4 +1,5 @@
 import itertools
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Tuple
@@ -16,6 +17,8 @@ from pants.engine.target import SourcesPaths, SourcesPathsRequest
 from pants.engine.unions import UnionRule
 from pants.util.frozendict import FrozenDict
 from pants.vcs.hunk import Block
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ async def get_my_block_owners(
     request: PythonConstantBlockOwnersRequest,
     mapping: PythonConstantMapping,
 ) -> Owners:
+    logger.debug("block owners request: %s", request)
     owners = set()
     for path, blocks in request.blocks.items():
         targets = mapping.get(path)
