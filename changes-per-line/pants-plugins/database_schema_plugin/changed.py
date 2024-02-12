@@ -10,16 +10,16 @@ from database_schema_plugin.target_types import (
     PythonConstantSourceField,
     PythonConstantTarget,
 )
-from pants.engine.internals.graph import HunkOwnersRequest, Owners
+from pants.engine.internals.graph import BlockOwnersRequest, Owners
 from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import SourcesPaths, SourcesPathsRequest
 from pants.engine.unions import UnionRule
 from pants.util.frozendict import FrozenDict
-from pants.vcs.hunk import Hunk
+from pants.vcs.hunk import Block
 
 
 @dataclass(frozen=True)
-class PythonConstantHunkOwnersRequest(HunkOwnersRequest):
+class PythonConstantBlockOwnersRequest(BlockOwnersRequest):
     pass
 
 
@@ -47,23 +47,23 @@ async def make_python_constant_mapping(
 
 
 @rule
-async def get_my_hunk_owners(
-    request: PythonConstantHunkOwnersRequest,
+async def get_my_block_owners(
+    request: PythonConstantBlockOwnersRequest,
     mapping: PythonConstantMapping,
 ) -> Owners:
     owners = set()
-    for path, hunks in request.hunks.items():
+    for path, blocks in request.blocks.items():
         targets = mapping.get(path)
         if not targets:
             continue
 
-        for target, hunk in itertools.product(targets, hunks):
+        for target, block in itertools.product(targets, blocks):
             start_lineno = target.get(PythonConstantLinenoField).value
             end_lineno = target.get(PythonConstantEndLinenoField).value
 
-            if hunk.right_start > end_lineno:
+            if block.start > end_lineno:
                 continue
-            if hunk.right_start + hunk.right_count - 1 < start_lineno:  # TODO tests
+            if block.start + block.count - 1 < start_lineno:  # TODO tests
                 continue
             owners.add(target.address)
 
@@ -73,5 +73,5 @@ async def get_my_hunk_owners(
 def rules():
     return [
         *collect_rules(),
-        UnionRule(HunkOwnersRequest, PythonConstantHunkOwnersRequest),
+        UnionRule(BlockOwnersRequest, PythonConstantBlockOwnersRequest),
     ]
