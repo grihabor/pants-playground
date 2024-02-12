@@ -11,6 +11,7 @@ from pants.backend.python.dependency_inference.module_mapper import (
 from pants.backend.python.subsystems.setup import PythonSetup
 from pants.backend.python.target_types import PythonResolveField, PythonSourceField
 from pants.engine.addresses import Addresses
+from pants.engine.collection import Collection
 from pants.engine.fs import Digest, DigestContents
 from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import (
@@ -193,7 +194,7 @@ class ImportVisitor(ast.NodeVisitor):
         return v._found
 
 
-class AllPythonConstantTargets(Targets):
+class AllPythonConstantTargets(Collection[PythonConstantTarget]):
     pass
 
 
