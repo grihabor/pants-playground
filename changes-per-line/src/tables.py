@@ -3,7 +3,6 @@ companies = {
     "colums": [
         "id",
         "name",
-        "address",
     ],
 }
 
