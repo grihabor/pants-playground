@@ -16,7 +16,6 @@ from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import SourcesPaths, SourcesPathsRequest
 from pants.engine.unions import UnionRule
 from pants.util.frozendict import FrozenDict
-from pants.vcs.hunk import Block
 
 logger = logging.getLogger(__name__)
 

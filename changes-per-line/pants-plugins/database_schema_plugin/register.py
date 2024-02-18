@@ -13,5 +13,5 @@ def target_types():
 def rules():
     return [
         *target_types_rules(),
-        *changed_rules(),
+        # *changed_rules(),
     ]

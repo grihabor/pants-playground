@@ -13,6 +13,7 @@ from pants.backend.python.target_types import PythonResolveField, PythonSourceFi
 from pants.engine.addresses import Addresses
 from pants.engine.collection import Collection
 from pants.engine.fs import Digest, DigestContents
+from pants.engine.internals.target_adaptor import TextBlock
 from pants.engine.rules import Get, MultiGet, collect_rules, rule
 from pants.engine.target import (
     COMMON_TARGET_FIELDS,
@@ -141,11 +142,19 @@ async def generate_python_contant_targets(
                 {
                     **request.template,
                     PythonConstantNameField.alias: python_contant.python_contant,
-                    PythonConstantLinenoField.alias: python_contant.lineno,
-                    PythonConstantEndLinenoField.alias: python_contant.end_lineno,
                 },
                 request.template_address.create_generated(
                     python_contant.python_contant
+                ),
+                origin_text_blocks=FrozenDict(
+                    {
+                        digest_files[0].path: (
+                            TextBlock(
+                                start=python_contant.lineno,
+                                end=python_contant.end_lineno,
+                            ),
+                        ),
+                    }
                 ),
             )
             for python_contant in python_contants
