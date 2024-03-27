@@ -1,0 +1,5 @@
+[GLOBAL]
+pants_version = "2.19.1"
+backend_packages = [
+    "pants.backend.experimental.java",
+]
