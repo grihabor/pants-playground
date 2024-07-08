@@ -1,0 +1,10 @@
+diff --git a/helm-dependents-bug/src/helm/my-chart/templates/configmap.yaml b/helm-dependents-bug/src/helm/my-chart/templates/configmap.yaml
+index 22b9752..0912742 100644
+--- a/helm-dependents-bug/src/helm/my-chart/templates/configmap.yaml
++++ b/helm-dependents-bug/src/helm/my-chart/templates/configmap.yaml
+@@ -5,4 +5,4 @@ metadata:
+ data:
+   pants.toml: |
+     [GLOBAL]
+-    pants_version = "2.21.0"
++    pants_version = "2.20.0"
