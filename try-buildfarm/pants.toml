@@ -1,0 +1,14 @@
+[GLOBAL]
+pants_version = "2.22.0"
+remote_execution = true
+remote_execution_address = "grpc://localhost:8980"
+remote_store_address = "grpc://localhost:8980"
+backend_packages = [
+    "pants.backend.python",
+]
+
+[environments-preview.names]
+remote_env = "//:remote_env"
+
+[python]
+interpreter_constraints = ["CPython==3.12.*"]
